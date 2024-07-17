@@ -14,3 +14,7 @@ Figure 2: CDD/Chill Portions
 Figure 3: GDD Budbreak/GDD General Growth
 Figure 4: Extreme Temperatures > 34C/Extreme Temperatures > 15C
 
+######------Figure 5.py-----######
+This code takes in the counties for all three counties analyzed; Yakima County, WA, Kent County, MI, and Wayne County NY. The code processes six climate metrics: Cold Degree Days, Last Day of Spring Frost, GDD Bud Break, GDD General Growth, Extreme Heat Days, and Warm Nights.
+The code also implementes the annotation for trend lines with 95% CI for each county, while printing out a table of all metrics with p-values also included. 
+
