@@ -9,7 +9,6 @@ import matplotlib.cm as cm  # For colormap handling
 from mpl_toolkits.axes_grid1 import make_axes_locatable  # For adjusting axes positions
 import geopandas as gpd  # For geographic data operations
 from shapely.geometry import Point  # For handling geometric objects
-import regionmask  # For masking regions in geographic data
 import matplotlib.ticker as mticker  # For custom tick formatting
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER  # For formatting longitude and latitude
 
@@ -52,7 +51,7 @@ trend_chill_portion_data *= 10  # Scale the trend data for visualization
 # Generate lat/lon ranges based on the shape of the .npy data
 lat_range = np.linspace(49.4, 25.07, climatology_chill_portion_data.shape[0])  # Latitude range (note reversed order)
 lon_range = np.linspace(-124.8, -67.06, climatology_chill_portion_data.shape[1])  # Longitude range
-lons, lats = np.meshgrid(lon_range, lat_range)  # Create 2D grids for longitude and latitude
+lons_npy, lats_npy = np.meshgrid(lon_range, lat_range)  # Create 2D grids for longitude and latitude
 
 # Multiply trend values by 10 for better visualization, except for chill portion
 for var in ['trend_cdd', 'trend_gdd1', 'trend_gdd2', 'trend_tmax', 'trend_tmin']:
@@ -121,11 +120,15 @@ colorbar_labels = {
     'trend_tmin': 'Days/Decade'
 }
 
-# --- Figure 2: CDD & Chill Portion ---
+# Define lons_nc and lats_nc for NetCDF data
+lats_nc = climatology_ds['lat'].values
+lons_nc = climatology_ds['lon'].values
+lons_nc, lats_nc = np.meshgrid(lons_nc, lats_nc)
+
 def plot_cdd_chill_portion():
     # Create a figure with a 2x2 grid of subplots
     fig_cp, axes_cp = plt.subplots(nrows=2, ncols=2, figsize=(20, 10), subplot_kw={'projection': ccrs.PlateCarree()})
-    fig_cp.suptitle('Cold Degree Days/Chill Portion Climatology and Trends', fontsize=28, fontweight='bold')
+    fig_cp.suptitle('Cold Degree Days/Chill Portion Climatology and Trends', fontsize=28, fontweight='bold', y=1)
 
     # Map of subplot positions to labels
     label_map = {
@@ -144,10 +147,13 @@ def plot_cdd_chill_portion():
     # Define colorbar ticks for different variables
     colorbar_ticks_cp = {
         'climatology_cdd': np.arange(0, 1501, 300),
-        'trend_cdd': np.arange(-50, 50, 5),
+        'trend_cdd': np.arange(-50, 51, 10),
         'climatology_chill_portion': np.arange(0, 141, 28),
-        'trend_chill_portion': np.linspace(-5, 5, 10)
+        'trend_chill_portion': np.linspace(-5, 5, 11)
     }
+
+    # Define a consistent extent for all subplots
+    extent = [-125, -67, 25, 50]  # Adjust based on your data coverage
 
     for row in range(2):  # Loop through the rows
         for col in range(2):  # Loop through the columns
@@ -161,20 +167,54 @@ def plot_cdd_chill_portion():
             ax = axes_cp[row, col]
             add_ticks(ax)  # Add latitude and longitude ticks
             ax.text(0.05, 0.05, label, transform=ax.transAxes, fontsize=16, fontweight='bold', va='bottom', ha='left')
+            ax.set_extent(extent, crs=ccrs.PlateCarree())  # Set the same extent for all subplots
 
-            if var_name == 'trend_cdd':  # Special handling for trend CDD data
-                original_trend_ds = xr.open_dataset('/home/shawn_preston/trend.nc')
-                data_values = -1 * original_trend_ds[var_name].values * 10
-                levels = np.arange(-70, 71, 10)
-                cmap = plt.get_cmap('RdBu', len(levels) - 1)
-                norm = mcolors.BoundaryNorm(levels, cmap.N, clip=True)
-                plot_element = ax.pcolormesh(lons, lats, data_values, cmap=cmap, norm=norm, transform=ccrs.PlateCarree())
-            elif var_name == 'climatology_cdd':  # Handling for climatology CDD data
-                data_values = climatology_ds[var_name].values
-                plot_element = ax.pcolormesh(lons, lats, data_values, cmap=colormaps[var_name], norm=norms[var_name], transform=ccrs.PlateCarree())
-            elif var == 'chill_portion':  # Handling for Chill Portion data
+            if var == 'cdd':
+                # Use NetCDF data and coordinates
+                lons = lons_nc
+                lats = lats_nc
+
+                data_values = climatology_ds[var_name].values if 'climatology' in var_name else trend_ds[var_name].values
+                # Set zero values to NaN to avoid plotting ocean areas
+                data_values[data_values == 0] = np.nan
+
+                if 'trend' in var_name:
+                    levels = np.arange(-70, 71, 10)
+                    # Use 'RdBu_r' colormap for trend_cdd
+                    cmap = plt.get_cmap('RdBu_r', len(levels) - 1)
+                    norm = mcolors.BoundaryNorm(levels, cmap.N, clip=True)
+                else:
+                    cmap = colormaps[var_name]
+                    norm = norms[var_name]
+
+                masked_data_values = np.ma.array(data_values, mask=np.isnan(data_values))
+                plot_element = ax.pcolormesh(
+                    lons, lats, masked_data_values, cmap=cmap, norm=norm, transform=ccrs.PlateCarree()
+                )
+
+            elif var == 'chill_portion':
+                # Use .npy data and coordinates
+                lons = lons_npy
+                lats = lats_npy
+
                 data_values = climatology_chill_portion_data if 'climatology' in var_name else trend_chill_portion_data
-                plot_element = ax.scatter(lons.flatten(), lats.flatten(), c=data_values, s=0.9, cmap=colormaps[var_name], norm=norms[var_name], transform=ccrs.PlateCarree(), clip_on=True)
+                # Set zero values to NaN
+                data_values[data_values == 0] = np.nan
+
+                # Use scatter plot with increased point size
+                data_values_flat = data_values.flatten()
+                lons_flat = lons.flatten()
+                lats_flat = lats.flatten()
+                # Mask NaN values
+                mask = ~np.isnan(data_values_flat)
+                data_values_flat = data_values_flat[mask]
+                lons_flat = lons_flat[mask]
+                lats_flat = lats_flat[mask]
+                # Plot using scatter with increased point size
+                plot_element = ax.scatter(
+                    lons_flat, lats_flat, c=data_values_flat, s=6, cmap=colormaps[var_name],
+                    norm=norms[var_name], transform=ccrs.PlateCarree(), marker='s'
+                )
 
             ax.coastlines()  # Add coastlines to the plot
             ax.add_feature(cfeature.BORDERS, linestyle='-')  # Add country borders
@@ -184,9 +224,11 @@ def plot_cdd_chill_portion():
                 title = titles[col]
                 ax.set_title(title, fontsize=22)
             extend = 'both' if 'trend_' in var_name else 'neither'
-            cbar = fig_cp.colorbar(plot_element, ax=ax, orientation='horizontal', fraction=0.09, pad=0.09, aspect=25, extend=extend)
+            cbar = fig_cp.colorbar(
+                plot_element, ax=ax, orientation='horizontal', pad=0.09, fraction=0.066, aspect=30, extend=extend
+            )
 
-            if var_name == 'trend_cdd':  # Special handling for trend CDD colorbar
+            if 'trend' in var_name and var == 'cdd':  # Special handling for trend CDD colorbar
                 cbar.set_ticks(levels)
                 cbar.ax.set_xticklabels([str(int(level)) for level in levels], fontsize=12)
             else:
@@ -194,33 +236,37 @@ def plot_cdd_chill_portion():
             cbar.set_label(colorbar_labels[var_name], size=12)
 
     # Adjust layout and add annotations for climatology and trends
-    fig_cp.tight_layout(pad=0, h_pad=0, w_pad=0.1, rect=[0, 0, 0, 0])
-    fig_cp.text(0.07, 0.74, 'Climatology', rotation=90, verticalalignment='center', fontsize=20, fontweight='bold')
-    fig_cp.text(0.09, 0.74, '1991-2020', rotation=90, verticalalignment='center', fontsize=12, fontweight='bold')
-    fig_cp.text(0.07, 0.33, 'Trend', rotation=90, verticalalignment='center', fontsize=20, fontweight='bold')
-    fig_cp.text(0.09, 0.33, '1979-2022', rotation=90, verticalalignment='center', fontsize=12, fontweight='bold')
-
-    # Save the figure
-    #plt.savefig('CDD_and_Chill_Portion_Subsections.png', dpi=300, bbox_inches='tight')
+    fig_cp.tight_layout(pad=0, h_pad=0, w_pad=0.1, rect=[0, 0, 1, 1])
+    fig_cp.text(0.005, 0.75, 'Climatology', rotation=90, verticalalignment='center', fontsize=20, fontweight='bold')
+    fig_cp.text(0.02, 0.75, '1991-2020', rotation=90, verticalalignment='center', fontsize=12, fontweight='bold')
+    fig_cp.text(0.005, 0.30, 'Trend', rotation=90, verticalalignment='center', fontsize=20, fontweight='bold')
+    fig_cp.text(0.02, 0.30, '1979-2022', rotation=90, verticalalignment='center', fontsize=12, fontweight='bold')
+    
+    fig_cp.savefig('ChillPortion_CDD.png', dpi=600, bbox_inches='tight')
     plt.show()
-
-# --- Figure 3: GDD1 & GDD2 ---
+    
 def plot_gdd1_gdd2():
     # Create a figure with a 2x2 grid of subplots
-    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(20, 10), subplot_kw={'projection': ccrs.PlateCarree()})
-    fig.suptitle('Growing Degree Day Climatology and Trends', fontsize=28, fontweight='bold')
+    fig, axes = plt.subplots(
+        nrows=2, ncols=2, figsize=(20, 10),
+        subplot_kw={'projection': ccrs.PlateCarree()}
+    )
+    fig.suptitle(
+        'Growing Degree Day Climatology and Trends',
+        fontsize=28, fontweight='bold', y=1
+    )
 
     # Variables to plot
     variables = ['gdd1', 'gdd2']
-    titles = ['GDD1 Climatology (1991-2020)', 'GDD1 Trend (1979-2022)',
-              'GDD2 Climatology (1991-2020)', 'GDD2 Trend (1979-2022)']
+    titles = [
+        'Bud Break & Flowering (1991-2020)',
+        'General Growth (1991-2020)'
+    ]
 
     # Map of subplot positions to labels
     label_map = {
-        (0, 0): 'A',
-        (0, 1): 'B',
-        (1, 0): 'i',
-        (1, 1): 'ii'
+        (0, 0): 'A', (0, 1): 'B',
+        (1, 0): 'i', (1, 1): 'ii'
     }
 
     # Colorbar labels for GDD variables
@@ -231,58 +277,118 @@ def plot_gdd1_gdd2():
         'trend_gdd2': 'Degree Days/Decade'
     }
 
-    for j, trend_type in enumerate(['climatology_', 'trend_']):  # Loop through climatology and trend
-        for i, var in enumerate(variables):  # Loop through GDD1 and GDD2
+    # Define a consistent extent for all subplots
+    extent = [-125, -67, 25, 50]
+
+    for j, trend_type in enumerate(['climatology_', 'trend_']):
+        for i, var in enumerate(variables):
             ax = axes[j, i]
+            add_ticks(ax)  # Add latitude and longitude ticks
             label = label_map[(j, i)]
-            ax.text(0.05, 0.05, label, transform=ax.transAxes, fontsize=16, fontweight='bold', va='bottom', ha='left')
+            ax.text(
+                0.05, 0.05, label, transform=ax.transAxes,
+                fontsize=16, fontweight='bold', va='bottom', ha='left'
+            )
+            ax.set_extent(extent, crs=ccrs.PlateCarree())
 
             var_name = f"{trend_type}{var}"
-            data_values = climatology_ds[var_name].values if 'climatology' in trend_type else trend_ds[var_name].values
 
-            if 'trend' in trend_type:  # Special handling for trend data
+            # Retrieve the data values
+            if 'climatology' in trend_type:
+                data_values = climatology_ds[var_name].values.copy()
+                # Set zero values to NaN in climatology data if needed
+                # data_values[data_values == 0] = np.nan
+            else:
+                data_values = trend_ds[var_name].values.copy()
+                # Retrieve corresponding climatology data
+                climatology_var_name = f"climatology_{var}"
+                climatology_data_values = climatology_ds[climatology_var_name].values
+
+                # Create mask where climatology data is NaN or zero
+                mask = np.isnan(climatology_data_values) | (climatology_data_values == 0)
+
+                # Apply the mask to the trend data
+                data_values[mask] = np.nan
+
+                # Also set zero values in trend data to NaN
+                data_values[data_values == 0] = np.nan
+
+            # Mask the data where values are NaN
+            masked_data_values = np.ma.array(
+                data_values, mask=np.isnan(data_values)
+            )
+
+            if 'trend' in trend_type:
+                # Special handling for trend data
                 if var == 'gdd1':
                     levels = np.arange(-40, 41, 5)
                 elif var == 'gdd2':
                     levels = np.arange(-70, 71, 10)
-                masked_data_values = np.ma.array(data_values, mask=np.isnan(data_values))
                 cmap = plt.get_cmap('RdBu_r', len(levels) - 1)
                 norm = mcolors.BoundaryNorm(levels, cmap.N, clip=True)
-                plot_element = ax.pcolormesh(lons, lats, masked_data_values, cmap=cmap, norm=norm, transform=ccrs.PlateCarree())
-            else:  # Handling for climatology data
+                plot_element = ax.pcolormesh(
+                    lons_nc, lats_nc, masked_data_values, cmap=cmap,
+                    norm=norm, transform=ccrs.PlateCarree()
+                )
+            else:
+                # Handling for climatology data
                 cmap = colormaps[var_name]
                 norm = norms[var_name]
-                plot_element = ax.pcolormesh(lons, lats, data_values, cmap=cmap, norm=norm, transform=ccrs.PlateCarree())
+                plot_element = ax.pcolormesh(
+                    lons_nc, lats_nc, masked_data_values, cmap=cmap,
+                    norm=norm, transform=ccrs.PlateCarree()
+                )
 
-            ax.coastlines()  # Add coastlines to the plot
-            ax.add_feature(cfeature.BORDERS, linestyle='-')  # Add country borders
-            ax.add_feature(cfeature.STATES, linestyle='-')  # Add state borders
-            ax.set_title(titles[j * 2 + i], fontsize=22)
+            ax.coastlines()
+            ax.add_feature(cfeature.BORDERS, linestyle='-')
+            ax.add_feature(cfeature.STATES, linestyle='-')
+
+            # Set titles only for climatology plots
+            if 'climatology' in trend_type:
+                title = titles[i]
+                ax.set_title(title, fontsize=22)
 
             extend = 'both' if 'trend_' in var_name else 'neither'
-            cbar = fig.colorbar(plot_element, ax=ax, orientation='horizontal', pad=0.09, fraction=0.066, aspect=30, extend=extend)
+            cbar = fig.colorbar(
+                plot_element, ax=ax, orientation='horizontal',
+                pad=0.09, fraction=0.066, aspect=30, extend=extend
+            )
             cbar.set_label(colorbar_labels_gdd[var_name], size=12)
 
-            if 'trend_' in var_name:  # Special handling for trend colorbar ticks
+            if 'trend_' in var_name:
+                # Special handling for trend colorbar ticks
                 cbar.set_ticks(levels)
-                cbar.ax.set_xticklabels([str(int(level)) for level in levels], fontsize=12)
+                cbar.ax.set_xticklabels(
+                    [str(int(level)) for level in levels], fontsize=12
+                )
 
     # Adjust layout and add annotations for climatology and trends
-    fig.tight_layout(pad=0, h_pad=0, w_pad=0, rect=[0, 0, 0, 0])
-    fig.text(0.07, 0.74, 'Climatology', rotation=90, verticalalignment='center', fontsize=20, fontweight='bold')
-    fig.text(0.09, 0.74, '1991-2020', rotation=90, verticalalignment='center', fontsize=12, fontweight='bold')
-    fig.text(0.07, 0.33, 'Trend', rotation=90, verticalalignment='center', fontsize=20, fontweight='bold')
-    fig.text(0.09, 0.33, '1979-2022', rotation=90, verticalalignment='center', fontsize=12, fontweight='bold')
+    fig.tight_layout(pad=0, h_pad=0, w_pad=0, rect=[0, 0, 1, 1])
+    fig.text(
+        0.005, 0.75, 'Climatology', rotation=90,
+        verticalalignment='center', fontsize=20, fontweight='bold'
+    )
+    fig.text(
+        0.02, 0.75, '1991-2020', rotation=90,
+        verticalalignment='center', fontsize=12, fontweight='bold'
+    )
+    fig.text(
+        0.005, 0.30, 'Trend', rotation=90,
+        verticalalignment='center', fontsize=20, fontweight='bold'
+    )
+    fig.text(
+        0.02, 0.30, '1979-2022', rotation=90,
+        verticalalignment='center', fontsize=12, fontweight='bold'
+    )
+    fig.savefig('GDD1_GDD2.png', dpi=600, bbox_inches='tight')
 
-    # Save the figure
-    #plt.savefig('GDD1_GDD2_Subsections.png', dpi=300, bbox_inches='tight')
     plt.show()
 
 # --- Figure 4: Tmin & Tmax ---
 def plot_tmin_tmax():
     # Create a figure with a 2x2 grid of subplots
     fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(20, 10), subplot_kw={'projection': ccrs.PlateCarree()})
-    fig.suptitle('Extreme Temperature Climatology and Trends', fontsize=28, fontweight='bold')
+    fig.suptitle('Extreme Temperature Climatology and Trends', fontsize=28, fontweight='bold', y = 1)
 
     # Variables to plot
     variables = ['tmax', 'tmin']
@@ -308,30 +414,33 @@ def plot_tmin_tmax():
         (1, 1): 'ii'
     }
 
+    # Define a consistent extent for all subplots
+    extent = [-125, -67, 25, 50]  # Adjust based on your data coverage
+
     for j, trend_type in enumerate(['climatology_', 'trend_']):  # Loop through climatology and trend
         for i, var in enumerate(variables):  # Loop through Tmax and Tmin
             ax = axes[j, i]
             add_ticks(ax)  # Add latitude and longitude ticks
             label = label_map[(j, i)]
             ax.text(0.05, 0.05, label, transform=ax.transAxes, fontsize=16, fontweight='bold', va='bottom', ha='left')
+            ax.set_extent(extent, crs=ccrs.PlateCarree())  # Set the same extent for all subplots
 
             var_name = f"{trend_type}{var}"
             data_values = climatology_ds[var_name].values if 'climatology' in trend_type else trend_ds[var_name].values
+            # Set zero values to NaN
+            data_values[data_values == 0] = np.nan
 
             if 'trend' in trend_type:  # Special handling for trend data
-                if var == 'tmax':
-                    levels = np.arange(-5, 6, .5)
-                else:
-                    levels = np.arange(-5, 6, .5)
+                levels = np.arange(-5, 5.5, 0.5)
                 cmap = plt.get_cmap('RdBu_r', len(levels) - 1)
                 norm = mcolors.BoundaryNorm(levels, cmap.N, clip=True)
-                data_values = np.ma.masked_invalid(data_values)
+                masked_data_values = np.ma.array(data_values, mask=np.isnan(data_values))
             else:  # Handling for climatology data
                 cmap = colormaps[var_name]
                 norm = norms[var_name]
+                masked_data_values = np.ma.array(data_values, mask=np.isnan(data_values))
 
-            masked_data_values = np.ma.array(data_values, mask=np.isnan(data_values))
-            mesh = ax.pcolormesh(lons, lats, masked_data_values, cmap=cmap, norm=norm, transform=ccrs.PlateCarree())
+            plot_element = ax.pcolormesh(lons_nc, lats_nc, masked_data_values, cmap=cmap, norm=norm, transform=ccrs.PlateCarree())
 
             ax.coastlines()  # Add coastlines to the plot
             ax.add_feature(cfeature.BORDERS, linestyle='-')  # Add country borders
@@ -339,22 +448,21 @@ def plot_tmin_tmax():
             ax.set_title(titles[j * 2 + i], fontsize=22)
 
             extend = 'both' if 'trend' in trend_type else 'neither'
-            cbar = fig.colorbar(mesh, ax=ax, orientation='horizontal', pad=0.09, fraction=0.066, aspect=30, extend=extend)
+            cbar = fig.colorbar(plot_element, ax=ax, orientation='horizontal', pad=0.09, fraction=0.066, aspect=30, extend=extend)
             cbar.set_label(colorbar_labels_temp[var_name], size=12)
 
             if 'trend' in trend_type:  # Special handling for trend colorbar ticks
                 cbar.set_ticks(levels)
-                cbar.ax.set_xticklabels([str(int(level)) if level.is_integer() else str(level) for level in levels], fontsize=12)
+                cbar.ax.set_xticklabels([str(level) if level % 1 else str(int(level)) for level in levels], fontsize=12)
 
     # Adjust layout and add annotations for climatology and trends
-    fig.tight_layout(pad=0, h_pad=0, w_pad=0, rect=[0, 0, 0, 0])
-    fig.text(0.07, 0.74, 'Climatology', rotation=90, verticalalignment='center', fontsize=20, fontweight='bold')
-    fig.text(0.09, 0.74, '1991-2020', rotation=90, verticalalignment='center', fontsize=12, fontweight='bold')
-    fig.text(0.07, 0.33, 'Trend', rotation=90, verticalalignment='center', fontsize=20, fontweight='bold')
-    fig.text(0.09, 0.33, '1979-2022', rotation=90, verticalalignment='center', fontsize=12, fontweight='bold')
+    fig.tight_layout(pad=0, h_pad=0, w_pad=0, rect=[0, 0, 1, 1])
+    fig.text(0.005, 0.75, 'Climatology', rotation=90, verticalalignment='center', fontsize=20, fontweight='bold')
+    fig.text(0.02, 0.75, '1991-2020', rotation=90, verticalalignment='center', fontsize=12, fontweight='bold')
+    fig.text(0.005, 0.30, 'Trend', rotation=90, verticalalignment='center', fontsize=20, fontweight='bold')
+    fig.text(0.02, 0.30, '1979-2022', rotation=90, verticalalignment='center', fontsize=12, fontweight='bold')
+    fig.savefig('Tmin_Tmax.png', dpi=600, bbox_inches='tight')
 
-    # Save the figure
-    #plt.savefig('Tmx_Tmn_Subsections.png', dpi=300, bbox_inches='tight')
     plt.show()
 
 # Call the plotting functions to generate the figures
