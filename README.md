@@ -12,14 +12,16 @@ The 1979-2022 trends for each metric
 The p-value (p=0.05) for each metric across the United States
 To change values or dates, you will need to edit this code to your liking.
 
-Figure2-4.py
+Figure3-5.py
 This code takes in the files from climatology.nc, trend.nc, chillportionclimatology.npy, and chillportiontrend.npy and creates three distinct figures. These figures highlight different growing and developmental phases for apple fruits:
 
-Figure 2: CDD/Chill Portions
-Figure 3: GDD Budbreak/GDD General Growth
-Figure 4: Extreme Temperatures > 34°C/Extreme Temperatures > 15°C
-Figure5.py
+Figure 3: CDD/Chill Portions
+Figure 4: GDD Budbreak/GDD General Growth
+Figure 5: Extreme Temperatures > 34°C/Extreme Temperatures > 15°C
+Figure6.py
 This code takes in the data for all three counties analyzed: Yakima County, WA; Kent County, MI; and Wayne County, NY. The code processes six climate metrics:
+
+Figure 7: Shows the number of detrimental trends across all six metrics.
 
 Cold Degree Days
 Last Day of Spring Frost
