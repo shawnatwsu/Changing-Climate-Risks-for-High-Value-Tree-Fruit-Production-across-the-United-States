@@ -179,9 +179,10 @@ def plot_cdd_chill_portion():
                 data_values[data_values == 0] = np.nan
 
                 if 'trend' in var_name:
+                    data_values = -1 * data_values  # Applying multiplication by -1 and a factor of 10 as per your need
                     levels = np.arange(-70, 71, 10)
                     # Use 'RdBu_r' colormap for trend_cdd
-                    cmap = plt.get_cmap('RdBu_r', len(levels) - 1)
+                    cmap = plt.get_cmap('RdBu', len(levels) - 1)
                     norm = mcolors.BoundaryNorm(levels, cmap.N, clip=True)
                 else:
                     cmap = colormaps[var_name]
@@ -394,9 +395,9 @@ def plot_tmin_tmax():
     variables = ['tmax', 'tmin']
     # Colorbar labels for temperature variables
     colorbar_labels_temp = {
-        'climatology_tmax': 'Days Above',
+        'climatology_tmax': 'Days',
         'trend_tmax': 'Days/Decade',
-        'climatology_tmin': 'Days Above',
+        'climatology_tmin': 'Days',
         'trend_tmin': 'Days/Decade'
     }
 
